@@ -1,20 +1,29 @@
-    using Microsoft.EntityFrameworkCore;
-    using TovUmarpeh;
-    using Amazon.S3;
-    using Amazon.S3.Model;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using TovUmarpeh;
+using Amazon.S3;
+using Amazon.S3.Model;
 using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Authorization;
+
 var builder = WebApplication.CreateBuilder(args);
 
+// הגדרת CORS
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin",
-        builder => builder.WithOrigins("http://localhost:4200")
+        builder => builder.WithOrigins("https://users-tuvumarpeh.onrender.com")
                         .AllowAnyHeader()
                         .AllowAnyMethod());
 });
 
+// הגדרת DbContext
 builder.Services.AddDbContext<UsersDBContext>(options =>
-    options.UseMySql(builder.Configuration.GetConnectionString("UsersDb"), 
+    options.UseMySql(builder.Configuration.GetConnectionString("UsersDb"),
     ServerVersion.Parse("8.0.41-mysql")));
 
 // הוספת Controllers עם JsonOptions
@@ -22,25 +31,48 @@ builder.Services.AddControllers().AddJsonOptions(options =>
 {
     options.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.Preserve;
 });
+
+// הגדרת Authentication עם JWT
+builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+    .AddJwtBearer(options =>
+    {
+        options.TokenValidationParameters = new TokenValidationParameters
+        {
+            ValidateIssuer = true,
+            ValidateAudience = true,
+            ValidateLifetime = true,
+            ValidateIssuerSigningKey = true,
+            ValidIssuer = builder.Configuration["Jwt:Issuer"],
+            ValidAudience = builder.Configuration["Jwt:Audience"],
+            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is not configured.")))
+        };
+    });
+
 DotNetEnv.Env.Load();
 
 var app = builder.Build();
-    app.UseCors("AllowSpecificOrigin");
-    //users
-    app.MapGet("/users", async (UsersDBContext context) =>
+
+app.UseCors("AllowSpecificOrigin");
+app.UseAuthentication(); // Middleware לאימות
+app.UseAuthorization();  // Middleware להרשאות
+
+// Endpoints
+app.MapGet("/users", [Authorize] async (UsersDBContext context) =>
+{
+    return await context.UsersTables.ToListAsync();
+});
+
+app.MapGet("/users/{id}", [Authorize] async (UsersDBContext context, int id) =>
+{
+    var user = await context.UsersTables.FindAsync(id);
+    if (user is null)
     {
-        return await context.UsersTables.ToListAsync();
-    });
-    app.MapGet("/users/{id}", async (UsersDBContext context, int id) =>
-    {
-        var user = await context.UsersTables.FindAsync(id);
-        if (user is null)
-        {
-            return Results.NotFound();
-        }
-        return Results.Ok(user);
-    });
-app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
+        return Results.NotFound();
+    }
+    return Results.Ok(user);
+});
+
+app.MapPost("/users", [Authorize] async (UsersDBContext context, HttpRequest request) =>
 {
     using var transaction = await context.Database.BeginTransactionAsync();
     try
@@ -56,18 +88,18 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
             FirstName = request.Form["FirstName"],
             LastName = request.Form["LastName"],
             Address = request.Form["Address"],
-            Phone = request.Form["Phone"],
-            City = request.Form["City"],
-            Email = request.Form["Email"],
-            BirthDate = request.Form["BirthDate"]
+            Phone = request.Form["Phone"]!,
+            City = request.Form["City"]!,
+            Email = request.Form["Email"]!,
+            BirthDate = request.Form["BirthDate"]!
         };
 
         context.UsersTables.Add(user);
 
-var s3Client = new AmazonS3Client(
-    Environment.GetEnvironmentVariable("KEY_ID"),
-    Environment.GetEnvironmentVariable("ACCESS_KEY"),
-    Amazon.RegionEndpoint.USEast1);
+        var s3Client = new AmazonS3Client(
+            Environment.GetEnvironmentVariable("KEY_ID"),
+            Environment.GetEnvironmentVariable("ACCESS_KEY"),
+            Amazon.RegionEndpoint.USEast1);
 
         var medicationsUrl = string.Empty;
         var agreementUrl = string.Empty;
@@ -76,52 +108,35 @@ var s3Client = new AmazonS3Client(
 
         if (request.Form.Files.Count > 0)
         {
-            if (request.Form.Files.Count > 0)
+            for (int i = 0; i < request.Form.Files.Count; i++)
             {
-                // הנחה שהקבצים יישלחו בסדר ידוע
-                for (int i = 0; i < request.Form.Files.Count; i++)
+                var file = request.Form.Files[i];
+
+                if (file.Length > 5 * 1024 * 1024)
                 {
-                    var file = request.Form.Files[i];
-
-                    if (file.Length > 5 * 1024 * 1024)
-                    {
-                        return Results.BadRequest($"File {file.FileName} is too large. Maximum size is 5MB.");
-                    }
-
-                    var uploadRequest = new PutObjectRequest
-                    {
-                        BucketName = "tovumarpeh",
-                        Key = file.FileName,
-                        InputStream = file.OpenReadStream(),
-                        ContentType = file.ContentType
-                    };
-
-                    var response = await s3Client.PutObjectAsync(uploadRequest);
-                    if (response.HttpStatusCode != System.Net.HttpStatusCode.OK)
-                    {
-                        return Results.Problem($"Error uploading file {file.FileName} to S3. Status code: {response.HttpStatusCode}");
-                    }
-
-                    var fileUrl = $"https://tovumarpeh.s3.amazonaws.com/{file.FileName}";
-
-                    // הקצאת ה-URL לשדה המתאים
-                    if (i == 0) // קובץ ראשון - תרופות
-                    {
-                        medicationsUrl = fileUrl;
-                    }
-                    else if (i == 1) // קובץ שני - הסכם
-                    {
-                        agreementUrl = fileUrl;
-                    }
-                    else if (i == 2) // קובץ שלישי - פרטי אישי
-                    {
-                        personalDetailsUrl = fileUrl;
-                    }
-                    else if (i == 3) // קובץ רביעי - תעודת זהות
-                    {
-                        identityUrl = fileUrl;
-                    }
+                    return Results.BadRequest($"File {file.FileName} is too large. Maximum size is 5MB.");
                 }
+
+                var uploadRequest = new PutObjectRequest
+                {
+                    BucketName = "tovumarpeh",
+                    Key = file.FileName,
+                    InputStream = file.OpenReadStream(),
+                    ContentType = file.ContentType
+                };
+
+                var response = await s3Client.PutObjectAsync(uploadRequest);
+                if (response.HttpStatusCode != System.Net.HttpStatusCode.OK)
+                {
+                    return Results.Problem($"Error uploading file {file.FileName} to S3. Status code: {response.HttpStatusCode}");
+                }
+
+                var fileUrl = $"https://tovumarpeh.s3.amazonaws.com/{file.FileName}";
+
+                if (i == 0) medicationsUrl = fileUrl;
+                else if (i == 1) agreementUrl = fileUrl;
+                else if (i == 2) personalDetailsUrl = fileUrl;
+                else if (i == 3) identityUrl = fileUrl;
             }
         }
 
@@ -147,22 +162,20 @@ var s3Client = new AmazonS3Client(
     }
 });
 
-    //updateUser
-    app.MapPut("/users/{id}", async (UsersDBContext context, HttpRequest request, int id) =>
+app.MapPut("/users/{id}", [Authorize] async (UsersDBContext context, HttpRequest request, int id) =>
 {
     try
     {
-        // קריאת נתוני המשתמש מהבקשה
         var user = new UsersTable
         {
-            IdNumber = int.Parse(request.Form["IdNumber"]),
-            FirstName = request.Form["FirstName"],
-            LastName = request.Form["LastName"],
+            IdNumber = int.Parse(request.Form["IdNumber"]!),
+            FirstName = request.Form["FirstName"]!,
+            LastName = request.Form["LastName"]!,
             Address = request.Form["Address"],
-            Phone = request.Form["Phone"],
-            City = request.Form["City"],
-            Email = request.Form["Email"],
-            BirthDate = request.Form["BirthDate"],
+            Phone = request.Form["Phone"]!,
+            City = request.Form["City"]!,
+            Email = request.Form["Email"]!,
+            BirthDate = request.Form["BirthDate"]!,
         };
 
         if (id != user.IdNumber)
@@ -181,8 +194,7 @@ var s3Client = new AmazonS3Client(
     }
 });
 
-    //login
-    app.MapPost("/login", async (UsersDBContext context, LoginRequest loginRequest) =>
+app.MapPost("/login", async (UsersDBContext context, LoginRequest loginRequest) =>
 {
     var user = await context.UsersTables
         .FirstOrDefaultAsync(u => u.IdNumber == loginRequest.IdNumber && u.Email == loginRequest.Email);
@@ -191,42 +203,56 @@ var s3Client = new AmazonS3Client(
     {
         return Results.NotFound("User not found");
     }
-    return Results.Ok("Login successful");
+
+    var tokenHandler = new JwtSecurityTokenHandler();
+var key = Encoding.UTF8.GetBytes(builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("Jwt:Key is not configured."));
+    var tokenDescriptor = new SecurityTokenDescriptor
+    {
+        Subject = new ClaimsIdentity(new[]
+        {
+            new Claim(ClaimTypes.NameIdentifier, user.IdNumber.ToString()),
+            new Claim(ClaimTypes.Email, user.Email)
+        }),
+        Expires = DateTime.UtcNow.AddHours(1),
+        Issuer = builder.Configuration["Jwt:Issuer"],
+        Audience = builder.Configuration["Jwt:Audience"],
+        SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+    };
+
+    var token = tokenHandler.CreateToken(tokenDescriptor);
+    var tokenString = tokenHandler.WriteToken(token);
+
+    return Results.Ok(new { Token = tokenString });
 });
 
-  
-    //activities
-  
-    app.MapGet("/activity", async (UsersDBContext context) =>
+app.MapGet("/activity", [Authorize] async (UsersDBContext context) =>
+{
+    return await context.Activities.ToListAsync();
+});
+
+app.MapGet("/activity/{id}", [Authorize] async (UsersDBContext context, int id) =>
+{
+    var activity = await context.Activities.FindAsync(id);
+    if (activity is null)
     {
-        return await context.Activities.ToListAsync();
-    });
-    app.MapGet("/activity/{id}", async (UsersDBContext context, int id) =>
-    {
-        var activity = await context.Activities.FindAsync(id);
-        if (activity is null)
-        {
-            return Results.NotFound();
-        }
-        return Results.Ok(activity);
-    });
-    app.MapGet("/enroll", async (UsersDBContext context) =>
-    {
-        return await context.Enrollments.ToListAsync();
-    });
-app.MapPost("/enroll", async (UsersDBContext context, Enrollment enrollment) =>
+        return Results.NotFound();
+    }
+    return Results.Ok(activity);
+});
+
+app.MapPost("/enroll", [Authorize] async (UsersDBContext context, Enrollment enrollment) =>
 {
     if (enrollment == null)
     {
         return Results.BadRequest("ההרשמה לא יכולה להיות ריקה.");
     }
-    
+
     var userExists = await context.UsersTables.AnyAsync(u => u.IdNumber == enrollment.IdNumber);
     if (!userExists)
     {
         return Results.BadRequest("המשתמש לא קיים." + " " + enrollment.IdNumber);
     }
-    
+
     var existingEnrollment = await context.Enrollments
         .AnyAsync(e => e.IdActivities == enrollment.IdActivities && e.IdNumber == enrollment.IdNumber);
 
@@ -241,7 +267,6 @@ app.MapPost("/enroll", async (UsersDBContext context, Enrollment enrollment) =>
         return Results.NotFound("הפעילות לא קיימת.");
     }
 
-    // בדוק אם המכסה מלאה
     var registeredUsersCount = await context.Enrollments
         .CountAsync(e => e.IdActivities == enrollment.IdActivities);
 
@@ -254,7 +279,8 @@ app.MapPost("/enroll", async (UsersDBContext context, Enrollment enrollment) =>
     await context.SaveChangesAsync();
     return Results.Created($"/enroll/{enrollment.EnrollmentId}", enrollment);
 });
-    app.Run();
+
+app.Run();
 
 public class LoginRequest
 {
