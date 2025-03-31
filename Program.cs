@@ -16,7 +16,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin",
-        builder => builder.AllowAnyOrigin()
+        builder => builder.WithOrigins("https://users-tuvumarpeh.onrender.com")
                           .AllowAnyHeader()
                           .AllowAnyMethod());
 });
@@ -53,8 +53,8 @@ DotNetEnv.Env.Load();
 var app = builder.Build();
 
 app.UseCors("AllowSpecificOrigin");
-app.UseAuthentication(); // Middleware לאימות
-app.UseAuthorization();  // Middleware להרשאות
+app.UseAuthentication(); 
+app.UseAuthorization();  
 
 // Endpoints
 app.MapGet("/users", [Authorize] async (UsersDBContext context) =>
