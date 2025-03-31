@@ -268,6 +268,21 @@ app.MapPost("/enroll", [Authorize] async (UsersDBContext context, Enrollment enr
     await context.SaveChangesAsync();
     return Results.Created($"/enroll/{enrollment.EnrollmentId}", enrollment);
 });
+app.MapGet("/activity/{id}", [Authorize] async (int id, UsersDBContext context, HttpContext httpContext) =>
+{
+    Console.WriteLine($"Accessing /activity/{id} endpoint");
+    Console.WriteLine($"Authorization Header: {httpContext.Request.Headers["Authorization"]}");
+    
+    var activity = await context.Activities.FindAsync(id);
+    
+    if (activity == null)
+    {
+        return Results.NotFound(); // מחזיר 404 אם הפעילות לא נמצאה
+    }
+
+    return Results.Ok(activity); // מחזיר את הפעילות שנמצאה
+});
+
 
 app.Run();
 
