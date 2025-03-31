@@ -322,7 +322,7 @@ Console.WriteLine($"JWT_KEY Loaded: {jwtKey}");
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin",
-        builder => builder.WithOrigins("https://users-tuvumarpeh.onrender.com")
+        builder => builder.WithOrigins("*")
                           .AllowAnyHeader()
                           .AllowAnyMethod());
 });
