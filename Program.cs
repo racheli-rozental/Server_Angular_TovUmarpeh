@@ -27,7 +27,7 @@ Console.WriteLine($"JWT_KEY Loaded: {jwtKey}");
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin",
-        builder => builder.WithOrigins("*")
+        builder => builder.WithOrigins("https://users-tuvumarpeh.onrender.com")
                           .AllowAnyHeader()
                           .AllowAnyMethod());
 });
@@ -98,7 +98,7 @@ app.MapGet("/users/{id}", [Authorize] async (UsersDBContext context, int id) =>
     return Results.Ok(user);
 });
 
-app.MapPost("/users", [Authorize] async (UsersDBContext context, HttpRequest request) =>
+app.MapPost("/users",  async (UsersDBContext context, HttpRequest request) =>
 {
     using var transaction = await context.Database.BeginTransactionAsync();
     try
