@@ -16,9 +16,9 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin",
-        builder => builder.WithOrigins("https://users-tuvumarpeh.onrender.com")
-                        .AllowAnyHeader()
-                        .AllowAnyMethod());
+        builder => builder.AllowAnyOrigin()
+                          .AllowAnyHeader()
+                          .AllowAnyMethod());
 });
 
 // הגדרת DbContext
