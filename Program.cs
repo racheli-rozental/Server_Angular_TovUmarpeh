@@ -188,6 +188,27 @@ app.MapPost("/users",  async (UsersDBContext context, HttpRequest request) =>
     }
 });
 
+app.MapGet("/files/{fileName}", async ( UsersDBContext context, HttpContext httpContext,string fileName) =>
+{
+    var s3Client = new AmazonS3Client(
+        Environment.GetEnvironmentVariable("KEY_ID"),
+        Environment.GetEnvironmentVariable("ACCESS_KEY"),
+        Amazon.RegionEndpoint.USEast1);
+
+    var request = new GetObjectRequest
+    {
+        BucketName = "tovumarpeh",
+        Key = fileName
+    };
+
+    using var response = await s3Client.GetObjectAsync(request);
+    using var responseStream = response.ResponseStream;
+    using var memoryStream = new MemoryStream();
+    await responseStream.CopyToAsync(memoryStream);
+    
+    return Results.File(memoryStream.ToArray(), response.Headers["Content-Type"], fileName);
+});
+
 app.MapPost("/login", async (UsersDBContext context, LoginRequest loginRequest) =>
 {
     Console.WriteLine("Accessing /login endpoint");
