@@ -12,10 +12,10 @@ using Microsoft.AspNetCore.Authorization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// טעינת משתני סביבה
+
 DotNetEnv.Env.Load();
 
-// בדיקת משתנה הסביבה JWT_KEY
+
 var jwtKey = Environment.GetEnvironmentVariable("JWT_KEY");
 if (string.IsNullOrEmpty(jwtKey))
 {
