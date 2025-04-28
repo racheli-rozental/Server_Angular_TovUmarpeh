@@ -229,8 +229,12 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
                     return Results.BadRequest($"File {file.FileName} is too large. Maximum size is 5MB.");
                 }
 
-                // קריאה לשירות AI כדי להוציא טקסט מהקובץ
-                var extractedText = await SomeAIService.ExtractTextAsync(file.OpenReadStream());
+                using var memoryStream = new MemoryStream();
+                await file.CopyToAsync(memoryStream);
+                memoryStream.Position = 0; // מחזיר להתחלה
+
+                // שימוש ראשון: AI
+                var extractedText = await SomeAIService.ExtractTextAsync(memoryStream);
 
                 if (string.IsNullOrWhiteSpace(extractedText))
                 {
@@ -245,19 +249,20 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
                     return Results.BadRequest($"Could not detect document type for file {file.FileName}.");
                 }
 
-                // יצירת שם קובץ חדש
                 var newFileName = $"{idNumber}_{documentType}.pdf";
 
-                // העלאת הקובץ עם השם החדש
+                memoryStream.Position = 0; // שוב להתחלה לפני העלאה
+
                 var uploadRequest = new PutObjectRequest
                 {
                     BucketName = "tovumarpeh",
                     Key = newFileName,
-                    InputStream = file.OpenReadStream(), // צריך לפתוח זרם מחדש או לשמור עותק
+                    InputStream = memoryStream,
                     ContentType = file.ContentType
                 };
 
                 var response = await s3Client.PutObjectAsync(uploadRequest);
+
                 if (response.HttpStatusCode != System.Net.HttpStatusCode.OK)
                 {
                     return Results.Problem($"Error uploading file {newFileName} to S3. Status code: {response.HttpStatusCode}");
@@ -307,7 +312,7 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
 });
 
 
-app.MapGet("/files/{fileName}", async ( UsersDBContext context, HttpContext httpContext,string fileName) =>
+app.MapGet("/files/{fileName}", async (UsersDBContext context, HttpContext httpContext, string fileName) =>
 {
     var s3Client = new AmazonS3Client(
         Environment.GetEnvironmentVariable("KEY_ID"),
@@ -324,7 +329,7 @@ app.MapGet("/files/{fileName}", async ( UsersDBContext context, HttpContext http
     using var responseStream = response.ResponseStream;
     using var memoryStream = new MemoryStream();
     await responseStream.CopyToAsync(memoryStream);
-    
+
     return Results.File(memoryStream.ToArray(), response.Headers["Content-Type"], fileName);
 });
 
@@ -412,9 +417,9 @@ app.MapGet("/activity/{id}", [Authorize] async (int id, UsersDBContext context, 
 {
     Console.WriteLine($"Accessing /activity/{id} endpoint");
     Console.WriteLine($"Authorization Header: {httpContext.Request.Headers["Authorization"]}");
-    
+
     var activity = await context.Activities.FindAsync(id);
-    
+
     if (activity == null)
     {
         return Results.NotFound(); // מחזיר 404 אם הפעילות לא נמצאה
