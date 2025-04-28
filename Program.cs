@@ -219,7 +219,6 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
             Amazon.RegionEndpoint.USEast1);
 
         string medicationsUrl = "", agreementUrl = "", personalDetailsUrl = "", identityUrl = "";
-
         if (request.Form.Files.Count > 0)
         {
             foreach (var file in request.Form.Files)
@@ -231,17 +230,23 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
 
                 using var memoryStream = new MemoryStream();
                 await file.CopyToAsync(memoryStream);
-                memoryStream.Position = 0; // מחזיר להתחלה
+                memoryStream.Position = 0;
 
-                // שימוש ראשון: AI
-                var extractedText = await SomeAIService.ExtractTextAsync(memoryStream);
+                string extractedText;
+                try
+                {
+                    extractedText = await SomeAIService.ExtractTextAsync(memoryStream);
+                }
+                catch (Exception ex)
+                {
+                    return Results.Problem($"Failed to extract text from file: {ex.Message}");
+                }
 
                 if (string.IsNullOrWhiteSpace(extractedText))
                 {
                     return Results.BadRequest($"Could not extract text from file {file.FileName}.");
                 }
 
-                // קביעה של סוג הקובץ לפי טקסט
                 var documentType = DocumentTypeDetector.DetectDocumentType(extractedText);
 
                 if (string.IsNullOrEmpty(documentType))
@@ -249,9 +254,10 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
                     return Results.BadRequest($"Could not detect document type for file {file.FileName}.");
                 }
 
-                var newFileName = $"{idNumber}_{documentType}.pdf";
+                var uniqueId = Guid.NewGuid().ToString();
+                var newFileName = $"{idNumber}_{documentType}_{uniqueId}.pdf";
 
-                memoryStream.Position = 0; // שוב להתחלה לפני העלאה
+                memoryStream.Position = 0;
 
                 var uploadRequest = new PutObjectRequest
                 {
@@ -270,7 +276,6 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
 
                 var fileUrl = $"https://tovumarpeh.s3.amazonaws.com/{newFileName}";
 
-                // שמירה בעמודה לפי סוג
                 switch (documentType.ToLower())
                 {
                     case "medications":
@@ -289,6 +294,8 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
             }
         }
 
+    
+
         var userFile = new UsersFile
         {
             IdNumber = idNumber,
@@ -298,17 +305,17 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
             Identity = identityUrl
         };
 
-        context.UsersFiles.Add(userFile);
-        await context.SaveChangesAsync();
-        await transaction.CommitAsync();
+    context.UsersFiles.Add(userFile);
+    await context.SaveChangesAsync();
+    await transaction.CommitAsync();
 
-        return Results.Created($"/users/files/{userFile.Id}", new { userFile });
-    }
+    return Results.Created($"/users/files/{userFile.Id}", new { userFile });
+}
     catch (Exception ex)
     {
-        await transaction.RollbackAsync();
-        return Results.Problem($"An error occurred: {ex.Message}");
-    }
+    await transaction.RollbackAsync();
+    return Results.Problem($"An error occurred: {ex.Message}");
+}
 });
 
 
