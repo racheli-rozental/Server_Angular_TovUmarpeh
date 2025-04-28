@@ -9,7 +9,8 @@ using Amazon.S3;
 using Amazon.S3.Model;
 using System.Text.Json.Serialization;
 using Microsoft.AspNetCore.Authorization;
-
+using Azure;
+using Azure.AI.FormRecognizer.DocumentAnalysis;
 var builder = WebApplication.CreateBuilder(args);
 
 
@@ -98,7 +99,97 @@ app.MapGet("/users/{id}", [Authorize] async (UsersDBContext context, int id) =>
     return Results.Ok(user);
 });
 
-app.MapPost("/users",  async (UsersDBContext context, HttpRequest request) =>
+// app.MapPost("/users1",  async (UsersDBContext context, HttpRequest request) =>
+// {
+//     using var transaction = await context.Database.BeginTransactionAsync();
+//     try
+//     {
+//         if (!int.TryParse(request.Form["IdNumber"], out var idNumber))
+//         {
+//             return Results.BadRequest("Invalid IdNumber format.");
+//         }
+
+//         var user = new UsersTable
+//         {
+//             IdNumber = idNumber,
+//             FirstName = request.Form["FirstName"],
+//             LastName = request.Form["LastName"],
+//             Address = request.Form["Address"],
+//             Phone = request.Form["Phone"]!,
+//             City = request.Form["City"]!,
+//             Email = request.Form["Email"]!,
+//             BirthDate = request.Form["BirthDate"]!
+//         };
+
+//         context.UsersTables.Add(user);
+
+//         var s3Client = new AmazonS3Client(
+//             Environment.GetEnvironmentVariable("KEY_ID"),
+//             Environment.GetEnvironmentVariable("ACCESS_KEY"),
+//             Amazon.RegionEndpoint.USEast1);
+
+//         var medicationsUrl = string.Empty;
+//         var agreementUrl = string.Empty;
+//         var personalDetailsUrl = string.Empty;
+//         var identityUrl = string.Empty;
+
+//         if (request.Form.Files.Count > 0)
+//         {
+//             for (int i = 0; i < request.Form.Files.Count; i++)
+//             {
+//                 var file = request.Form.Files[i];
+
+//                 if (file.Length > 5 * 1024 * 1024)
+//                 {
+//                     return Results.BadRequest($"File {file.FileName} is too large. Maximum size is 5MB.");
+//                 }
+
+//                 var uploadRequest = new PutObjectRequest
+//                 {
+//                     BucketName = "tovumarpeh",
+//                     Key = file.FileName,
+//                     InputStream = file.OpenReadStream(),
+//                     ContentType = file.ContentType
+//                 };
+
+//                 var response = await s3Client.PutObjectAsync(uploadRequest);
+//                 if (response.HttpStatusCode != System.Net.HttpStatusCode.OK)
+//                 {
+//                     return Results.Problem($"Error uploading file {file.FileName} to S3. Status code: {response.HttpStatusCode}");
+//                 }
+
+//                 var fileUrl = $"https://tovumarpeh.s3.amazonaws.com/{file.FileName}";
+
+//                 if (i == 0) medicationsUrl = fileUrl;
+//                 else if (i == 1) agreementUrl = fileUrl;
+//                 else if (i == 2) personalDetailsUrl = fileUrl;
+//                 else if (i == 3) identityUrl = fileUrl;
+//             }
+//         }
+
+//         var userFile = new UsersFile
+//         {
+//             IdNumber = idNumber,
+//             Medications = medicationsUrl,
+//             Agreement = agreementUrl,
+//             PersonalDetails = personalDetailsUrl,
+//             Identity = identityUrl
+//         };
+
+//         context.UsersFiles.Add(userFile);
+//         await context.SaveChangesAsync();
+//         await transaction.CommitAsync();
+
+//         return Results.Created($"/users/files/{userFile.Id}", new { userFile });
+//     }
+//     catch (Exception ex)
+//     {
+//         await transaction.RollbackAsync();
+//         return Results.Problem($"An error occurred: {ex.Message}");
+//     }
+// });
+
+app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
 {
     using var transaction = await context.Database.BeginTransactionAsync();
     try
@@ -127,42 +218,69 @@ app.MapPost("/users",  async (UsersDBContext context, HttpRequest request) =>
             Environment.GetEnvironmentVariable("ACCESS_KEY"),
             Amazon.RegionEndpoint.USEast1);
 
-        var medicationsUrl = string.Empty;
-        var agreementUrl = string.Empty;
-        var personalDetailsUrl = string.Empty;
-        var identityUrl = string.Empty;
+        string medicationsUrl = "", agreementUrl = "", personalDetailsUrl = "", identityUrl = "";
 
         if (request.Form.Files.Count > 0)
         {
-            for (int i = 0; i < request.Form.Files.Count; i++)
+            foreach (var file in request.Form.Files)
             {
-                var file = request.Form.Files[i];
-
                 if (file.Length > 5 * 1024 * 1024)
                 {
                     return Results.BadRequest($"File {file.FileName} is too large. Maximum size is 5MB.");
                 }
 
+                // קריאה לשירות AI כדי להוציא טקסט מהקובץ
+                var extractedText = await SomeAIService.ExtractTextAsync(file.OpenReadStream());
+
+                if (string.IsNullOrWhiteSpace(extractedText))
+                {
+                    return Results.BadRequest($"Could not extract text from file {file.FileName}.");
+                }
+
+                // קביעה של סוג הקובץ לפי טקסט
+                var documentType = DocumentTypeDetector.DetectDocumentType(extractedText);
+
+                if (string.IsNullOrEmpty(documentType))
+                {
+                    return Results.BadRequest($"Could not detect document type for file {file.FileName}.");
+                }
+
+                // יצירת שם קובץ חדש
+                var newFileName = $"{idNumber}_{documentType}.pdf";
+
+                // העלאת הקובץ עם השם החדש
                 var uploadRequest = new PutObjectRequest
                 {
                     BucketName = "tovumarpeh",
-                    Key = file.FileName,
-                    InputStream = file.OpenReadStream(),
+                    Key = newFileName,
+                    InputStream = file.OpenReadStream(), // צריך לפתוח זרם מחדש או לשמור עותק
                     ContentType = file.ContentType
                 };
 
                 var response = await s3Client.PutObjectAsync(uploadRequest);
                 if (response.HttpStatusCode != System.Net.HttpStatusCode.OK)
                 {
-                    return Results.Problem($"Error uploading file {file.FileName} to S3. Status code: {response.HttpStatusCode}");
+                    return Results.Problem($"Error uploading file {newFileName} to S3. Status code: {response.HttpStatusCode}");
                 }
 
-                var fileUrl = $"https://tovumarpeh.s3.amazonaws.com/{file.FileName}";
+                var fileUrl = $"https://tovumarpeh.s3.amazonaws.com/{newFileName}";
 
-                if (i == 0) medicationsUrl = fileUrl;
-                else if (i == 1) agreementUrl = fileUrl;
-                else if (i == 2) personalDetailsUrl = fileUrl;
-                else if (i == 3) identityUrl = fileUrl;
+                // שמירה בעמודה לפי סוג
+                switch (documentType.ToLower())
+                {
+                    case "medications":
+                        medicationsUrl = fileUrl;
+                        break;
+                    case "agreement":
+                        agreementUrl = fileUrl;
+                        break;
+                    case "personaldetails":
+                        personalDetailsUrl = fileUrl;
+                        break;
+                    case "identity":
+                        identityUrl = fileUrl;
+                        break;
+                }
             }
         }
 
@@ -187,6 +305,7 @@ app.MapPost("/users",  async (UsersDBContext context, HttpRequest request) =>
         return Results.Problem($"An error occurred: {ex.Message}");
     }
 });
+
 
 app.MapGet("/files/{fileName}", async ( UsersDBContext context, HttpContext httpContext,string fileName) =>
 {
@@ -306,6 +425,57 @@ app.MapGet("/activity/{id}", [Authorize] async (int id, UsersDBContext context, 
 
 
 app.Run();
+
+public static class SomeAIService
+{
+    private static readonly string endpoint = Environment.GetEnvironmentVariable("AZURE_FORM_RECOGNIZER_ENDPOINT");
+    private static readonly string apiKey = Environment.GetEnvironmentVariable("AZURE_FORM_RECOGNIZER_API_KEY");
+
+    public static async Task<string> ExtractTextAsync(Stream fileStream)
+    {
+        var credential = new AzureKeyCredential(apiKey);
+        var client = new DocumentAnalysisClient(new Uri(endpoint), credential);
+
+        var operation = await client.AnalyzeDocumentAsync(WaitUntil.Completed, "prebuilt-document", fileStream);
+
+        var result = operation.Value;
+
+        var extractedText = new StringBuilder();
+
+        foreach (var page in result.Pages)
+        {
+            foreach (var line in page.Lines)
+            {
+                extractedText.AppendLine(line.Content);
+            }
+        }
+
+        return extractedText.ToString();
+    }
+}
+public static class DocumentTypeDetector
+{
+    public static string DetectDocumentType(string text)
+    {
+        if (text.Contains("טופס תרופות") || text.Contains("medications", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Medications";
+        }
+        if (text.Contains("טופס הסכמה") || text.Contains("agreement", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Agreement";
+        }
+        if (text.Contains("פרטים אישיים") || text.Contains("personal details", StringComparison.OrdinalIgnoreCase))
+        {
+            return "PersonalDetails";
+        }
+        if (text.Contains("ספח תעודת זהות") || text.Contains("identity", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Identity";
+        }
+        return "";
+    }
+}
 
 public class LoginRequest
 {
