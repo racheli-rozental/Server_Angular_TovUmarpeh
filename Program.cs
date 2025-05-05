@@ -28,7 +28,7 @@ Console.WriteLine($"JWT_KEY Loaded: {jwtKey}");
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin",
-        builder => builder.WithOrigins("https://users-tuvumarpeh.onrender.com")
+        builder => builder.WithOrigins("http://localhost:4200","https://users-tuvumarpeh.onrender.com") 
                           .AllowAnyHeader()
                           .AllowAnyMethod());
 });
@@ -188,7 +188,6 @@ app.MapGet("/users/{id}", [Authorize] async (UsersDBContext context, int id) =>
 //         return Results.Problem($"An error occurred: {ex.Message}");
 //     }
 // });
-
 app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
 {
     using var transaction = await context.Database.BeginTransactionAsync();
@@ -232,10 +231,13 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
                 await file.CopyToAsync(memoryStream);
                 memoryStream.Position = 0;
 
+                // שמירת תוכן הזרם במערך
+                byte[] fileBytes = memoryStream.ToArray();
+
                 string extractedText;
                 try
                 {
-                    extractedText = await SomeAIService.ExtractTextAsync(memoryStream);
+                    extractedText = await SomeAIService.ExtractTextAsync(new MemoryStream(fileBytes));
                 }
                 catch (Exception ex)
                 {
@@ -257,13 +259,13 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
                 var uniqueId = Guid.NewGuid().ToString();
                 var newFileName = $"{idNumber}_{documentType}_{uniqueId}.pdf";
 
-                memoryStream.Position = 0;
-
+                // שימוש בזרם חדש עם התוכן
+                using var uploadStream = new MemoryStream(fileBytes);
                 var uploadRequest = new PutObjectRequest
                 {
                     BucketName = "tovumarpeh",
                     Key = newFileName,
-                    InputStream = memoryStream,
+                    InputStream = uploadStream,
                     ContentType = file.ContentType
                 };
 
@@ -294,8 +296,6 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
             }
         }
 
-    
-
         var userFile = new UsersFile
         {
             IdNumber = idNumber,
@@ -305,17 +305,17 @@ app.MapPost("/users", async (UsersDBContext context, HttpRequest request) =>
             Identity = identityUrl
         };
 
-    context.UsersFiles.Add(userFile);
-    await context.SaveChangesAsync();
-    await transaction.CommitAsync();
+        context.UsersFiles.Add(userFile);
+        await context.SaveChangesAsync();
+        await transaction.CommitAsync();
 
-    return Results.Created($"/users/files/{userFile.Id}", new { userFile });
-}
+        return Results.Created($"/users/files/{userFile.Id}", new { userFile });
+    }
     catch (Exception ex)
     {
-    await transaction.RollbackAsync();
-    return Results.Problem($"An error occurred: {ex.Message}");
-}
+        await transaction.RollbackAsync();
+        return Results.Problem($"An error occurred: {ex.Message}");
+    }
 });
 
 
@@ -429,10 +429,10 @@ app.MapGet("/activity/{id}", [Authorize] async (int id, UsersDBContext context, 
 
     if (activity == null)
     {
-        return Results.NotFound(); // מחזיר 404 אם הפעילות לא נמצאה
+        return Results.NotFound(); 
     }
 
-    return Results.Ok(activity); // מחזיר את הפעילות שנמצאה
+    return Results.Ok(activity); 
 });
 
 
@@ -477,7 +477,7 @@ public static class DocumentTypeDetector
         {
             return "Agreement";
         }
-        if (text.Contains("פרטים אישיים") || text.Contains("personal details", StringComparison.OrdinalIgnoreCase))
+        if (text.Contains("פרטים אישיים") || text.Contains("personaldetails", StringComparison.OrdinalIgnoreCase))
         {
             return "PersonalDetails";
         }

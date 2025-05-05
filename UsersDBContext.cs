@@ -25,7 +25,7 @@ public partial class UsersDBContext : DbContext
     public virtual DbSet<UsersTable> UsersTables { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-        => optionsBuilder.UseMySql("Server=bzgu8ar6yf5q7tnidimj-mysql.services.clever-cloud.com;Database=bzgu8ar6yf5q7tnidimj;User=u7iuwm6vb053xgj4;Password=hMrLfQQ3BTt7eStzTSyU;", Microsoft.EntityFrameworkCore.ServerVersion.Parse("8.0.22-mysql"));
+        => optionsBuilder.UseMySql("Server=bzgu8ar6yf5q7tnidimj-mysql.services.clever-cloud.com;Database=bzgu8ar6yf5q7tnidimj;User=u7iuwm6vb053xgj4;Password=hMrLfQQ3BTt7eStzTSyU;",ServerVersion.Parse("8.0.22-mysql"));
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -86,9 +86,7 @@ public partial class UsersDBContext : DbContext
             entity.Property(e => e.Agreement).HasMaxLength(255);
             entity.Property(e => e.Identity).HasMaxLength(255);
             entity.Property(e => e.Medications).HasMaxLength(255);
-            entity.Property(e => e.PersonalDetails)
-                .HasMaxLength(255)
-                .HasColumnName("Personal_details");
+            entity.Property(e => e.PersonalDetails).HasMaxLength(255);
 
             entity.HasOne(d => d.IdNumberNavigation).WithMany(p => p.UsersFiles)
                 .HasForeignKey(d => d.IdNumber)
