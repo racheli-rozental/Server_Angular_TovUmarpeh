@@ -79,7 +79,7 @@ var app = builder.Build();
 
 app.UseCors("AllowSpecificOrigin");
 app.UseAuthentication();
-app.UseAuthorization();
+
 
 // פונקציות API
 app.MapGet("/users", [Authorize] async (UsersDBContext context) =>

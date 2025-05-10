@@ -25,7 +25,7 @@ public partial class UsersDBContext : DbContext
     public virtual DbSet<UsersTable> UsersTables { get; set; }
 
     protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
-        => optionsBuilder.UseMySql("Server=bzgu8ar6yf5q7tnidimj-mysql.services.clever-cloud.com;Database=bzgu8ar6yf5q7tnidimj;User=u7iuwm6vb053xgj4;Password=hMrLfQQ3BTt7eStzTSyU;",ServerVersion.Parse("8.0.22-mysql"));
+        => optionsBuilder.UseMySql("Server=bzgu8ar6yf5q7tnidimj-mysql.services.clever-cloud.com;Database=bzgu8ar6yf5q7tnidimj;User Id=u7iuwm6vb053xgj4;Password=hMrLfQQ3BTt7eStzTSyU;",ServerVersion.Parse("8.0.22-mysql"));
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -98,6 +98,8 @@ public partial class UsersDBContext : DbContext
             entity.HasKey(e => e.IdNumber).HasName("PRIMARY");
 
             entity.ToTable("users_table");
+
+            entity.HasIndex(e => e.Email, "email_UNIQUE").IsUnique();
 
             entity.Property(e => e.IdNumber)
                 .ValueGeneratedNever()
