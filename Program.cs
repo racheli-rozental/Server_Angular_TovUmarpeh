@@ -357,8 +357,10 @@ app.Run();
 
 public static class SomeAIService
 {
-    private static readonly string endpoint = Environment.GetEnvironmentVariable("AZURE_FORM_RECOGNIZER_ENDPOINT");
-    private static readonly string apiKey = Environment.GetEnvironmentVariable("AZURE_FORM_RECOGNIZER_API_KEY");
+    private static readonly string endpoint = Environment.GetEnvironmentVariable("AZURE_FORM_RECOGNIZER_ENDPOINT")
+        ?? throw new InvalidOperationException("AZURE_FORM_RECOGNIZER_ENDPOINT is not configured in the environment variables.");
+    private static readonly string apiKey = Environment.GetEnvironmentVariable("AZURE_FORM_RECOGNIZER_API_KEY") 
+        ?? throw new InvalidOperationException("AZURE_FORM_RECOGNIZER_API_KEY is not configured in the environment variables.");
 
     public static async Task<string> ExtractTextAsync(Stream fileStream)
     {
