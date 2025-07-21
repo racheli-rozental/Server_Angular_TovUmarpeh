@@ -79,10 +79,10 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
 // Build the app
 var app = builder.Build();
-
+app.UseCors("AllowSpecificOrigin");
 // Middleware
 app.UseHttpsRedirection();
-app.UseCors("AllowSpecificOrigin");
+
 app.UseAuthentication();
 app.UseAuthorization();
 
