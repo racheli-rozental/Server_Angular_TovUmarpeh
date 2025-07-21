@@ -29,11 +29,14 @@ Console.WriteLine($"JWT_KEY Loaded: {jwtKey}");
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("AllowSpecificOrigin", policy =>
-    {
-        policy.WithOrigins("https://manager-tuvumarpeh.onrender.com", "https://users-tuvumarpeh.onrender.com")
-              .AllowAnyHeader()
-              .AllowAnyMethod();
-    });
+        policy.WithOrigins(
+            "https://manager-tuvumarpeh.onrender.com",
+            "https://users-tuvumarpeh.onrender.com",
+            "http://localhost:4200"
+        )
+        .AllowAnyHeader()
+        .AllowAnyMethod()
+    );
 });
 
 // Configure DbContext
@@ -346,10 +349,10 @@ app.MapGet("/activity/{id}", [Authorize] async (int id, UsersDBContext context, 
 
     if (activity == null)
     {
-        return Results.NotFound(); 
+        return Results.NotFound();
     }
 
-    return Results.Ok(activity); 
+    return Results.Ok(activity);
 });
 
 
@@ -359,7 +362,7 @@ public static class SomeAIService
 {
     private static readonly string endpoint = Environment.GetEnvironmentVariable("AZURE_FORM_RECOGNIZER_ENDPOINT")
         ?? throw new InvalidOperationException("AZURE_FORM_RECOGNIZER_ENDPOINT is not configured in the environment variables.");
-    private static readonly string apiKey = Environment.GetEnvironmentVariable("AZURE_FORM_RECOGNIZER_API_KEY") 
+    private static readonly string apiKey = Environment.GetEnvironmentVariable("AZURE_FORM_RECOGNIZER_API_KEY")
         ?? throw new InvalidOperationException("AZURE_FORM_RECOGNIZER_API_KEY is not configured in the environment variables.");
 
     public static async Task<string> ExtractTextAsync(Stream fileStream)
@@ -414,4 +417,3 @@ public class LoginRequest
     public string? Email { get; set; }
 }
 
-///////////////////////////////////////////
